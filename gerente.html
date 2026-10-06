@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><meta name="theme-color" content="#6b3a8a"><title>Feira · Gerente</title><link rel="manifest" href="manifest-gerente.webmanifest"><link rel="icon" href="icons/gerente-192.png"><link rel="apple-touch-icon" href="icons/gerente-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Gerente"><link rel="stylesheet" href="css/estilo.css"><script src="js/config.js"></script><script src="js/api.js"></script><script src="js/pwa.js"></script></head>
+<body>
+<header><b id="tit">🧑‍🌾 Gerente da feira</b><small id="sub"></small></header>
+<main>
+  <div id="login" class="card">
+    <label for="pin">PIN (gerente ou coordenação)</label><input id="pin" type="password" inputmode="numeric">
+    <p><button onclick="entrar()">Entrar</button></p><div id="m1"></div>
+  </div>
+
+  <div id="painel" class="oculto">
+    <div class="card nav">
+      <button id="n_painel" onclick="aba('painel')">Painel</button>
+      <button id="n_pedidos" class="sec" onclick="aba('pedidos')">Pedidos</button>
+      <button id="n_oferta" class="sec" onclick="aba('oferta')">Oferta × pedidos</button>
+      <button id="n_acerto" class="sec" onclick="aba('acerto')">Acerto e PIX</button>
+      <button id="n_fichas" class="sec" onclick="aba('fichas')">Fichas de entrega</button>
+      <button id="n_hist" class="sec" onclick="aba('hist')">Histórico</button>
+      <button class="sec" onclick="atualizar()">Atualizar</button>
+      <a id="lkPedido" href="#" target="_blank" rel="noopener" style="margin-left:8px">Abrir formulário de encomendas</a>
+    </div>
+    <div class="card" id="barra">Feira: <select id="selFeira" onchange="trocarFeira()" style="width:auto"></select>
+      <label style="font-weight:normal;display:inline-block;margin-left:10px"><input type="checkbox" id="auto" onchange="autoLigar()"> atualizar sozinho (30 s)</label></div>
+    <div id="vPainel" class="card"></div>
+    <div id="vPedidos" class="card oculto"></div>
+    <div id="vOferta" class="card oculto"></div>
+    <div id="vAcerto" class="card oculto"></div>
+    <div id="vFichas" class="card oculto"></div>
+    <div id="vHist" class="card oculto"></div>
+  </div>
+
+  <div id="cesta" class="oculto">
+    <div class="card"><button class="sec" onclick="voltar()">← Voltar aos pedidos</button></div>
+    <div class="card" id="cli"></div>
+    <div id="itens"></div>
+    <div class="card">
+      <div id="tot"></div>
+      <label for="freteIn">Frete deste pedido (R$)</label><input id="freteIn" type="number" min="0" step="0.01" inputmode="decimal" oninput="recalcular()">
+      <p class="pequeno">Vem da aba Fretes (pelo bairro) ou da coluna F da aba Clientes. Se estiver errado ou em branco, digite o valor aqui antes de salvar.</p>
+      <label for="pix">Conta PIX para o cliente pagar</label><select id="pix" onchange="mostrarPix()"></select>
+      <div id="pixInfo" class="pequeno"></div>
+      <p><button id="bSalvar" onclick="salvar()">Salvar cesta</button>
+         <button id="bWpp" class="sec" onclick="whats()" disabled>Enviar ao cliente pelo WhatsApp</button></p>
+      <p><button id="bEnt" class="sec" onclick="entregue()"></button>
+         <button id="bCanc" class="sec" onclick="cancelarPedido()">Cancelar pedido</button></p>
+      <div id="m3"></div>
+    </div>
+    <div class="card" id="pag"></div>
+    <div id="m4"></div>
+  </div>
+</main>
+<script>
+  document.getElementById('lkPedido').href = 'encomendas.html';
+  var PIN = '', PAPEL = '', FIN = null, GER = null, PED = null, SEL = '', ABA = 'painel', TIMER = null, HIST = [];
+  function ehG() { return PAPEL === 'gerente'; }
+  function atualFeira() { return !!(FIN && FIN.feira && FIN.feira.data === FIN.atual); }
+  function hoje() { var d = new Date(), p = function (n) { return ('0' + n).slice(-2); }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+  function saldoTxt(s) { return s > 0.005 ? '<span class="pos">a receber ' + brl(s) + '</span>' : (s < -0.005 ? '<span class="neg">a repassar ' + brl(-s) + '</span>' : 'quitado'); }
+  function kpi(r, v, s) { return '<div class="kpi"><span class="pequeno">' + r + '</span><b>' + v + '</b>' + (s ? '<span class="pequeno">' + s + '</span>' : '') + '</div>'; }
+  function tagSit(p) {
+    var cls = { 'Pago': 'ok', 'Em aberto': 'alerta', 'Parcial': 'alerta', 'Pago a mais': 'erro', 'Cancelado': 'erro' }[p.situacao] || '';
+    return '<span class="tag ' + cls + '">' + esc(p.situacao) + '</span>' + (p.pago ? '<br><span class="pequeno">' + brl(p.pago) + '</span>' : '');
+  }
+
+  // ---------- entrada e carga ----------
+  function entrar() {
+    PIN = $('pin').value;
+    carregar().then(function () {
+      $('login').classList.add('oculto'); $('painel').classList.remove('oculto');
+    }).catch(function (e) { msg('m1', e.message, 'err'); });
+  }
+  function carregar() {
+    return Promise.all([api('apiFinanceiro', PIN, SEL), api('apiGerenteEntrar', PIN)]).then(function (r) { FIN = r[0]; GER = r[1]; PAPEL = FIN.papel; desenhar(); });
+  }
+  function atualizar() { carregar().catch(function (e) { alert(e.message); }); }
+  function trocarFeira() { SEL = $('selFeira').value; atualizar(); }
+  function autoLigar() {
+    clearInterval(TIMER);
+    if ($('auto').checked) TIMER = setInterval(function () { if ($('cesta').classList.contains('oculto')) atualizar(); }, 30000);
+  }
+  function aba(n) {
+    ABA = n;
+    ['painel', 'pedidos', 'oferta', 'acerto', 'fichas', 'hist'].forEach(function (a) {
+      $('v' + a.charAt(0).toUpperCase() + a.slice(1)).classList.toggle('oculto', a !== n);
+      $('n_' + a).classList.toggle('sec', a !== n);
+    });
+    $('barra').classList.toggle('oculto', n === 'fichas');
+    if (n === 'fichas') carregarFichas();
+    if (n === 'hist') desenharHist();
+  }
+
+  function desenhar() {
+    $('tit').textContent = ehG() ? '🧑‍🌾 Gerente da feira' : '📋 Coordenação — acompanhamento';
+    if (!FIN.feira) { $('sub').textContent = ''; $('vPainel').innerHTML = '<div class="msg info">Nenhuma feira cadastrada ainda. A coordenação deve abrir uma feira.</div>'; return; }
+    $('sub').textContent = 'Feira de ' + FIN.feira.dataBR + ' · ' + FIN.feira.status + (ehG() ? '' : ' · só consulta e pagamentos');
+    $('selFeira').innerHTML = FIN.feiras.map(function (f) { return '<option value="' + esc(f.data) + '"' + (f.data === FIN.feira.data ? ' selected' : '') + '>' + esc(f.dataBR) + ' (' + esc(f.status) + ')</option>'; }).join('');
+    desenharPainel(); desenharPedidos(); desenharOferta(); desenharAcerto();
+  }
+
+  // ---------- painel ----------
+  function desenharPainel() {
+    var r = FIN.resumo, v = FIN.valores;
+    var h = '<b>Painel da feira de ' + esc(FIN.feira.dataBR) + '</b> <span class="tag">' + esc(FIN.feira.status) + '</span>' +
+      '<div class="cards">' + kpi('Pedidos', r.pedidos, r.cancelados ? r.cancelados + ' cancelado(s)' : '') +
+      kpi('Cestas prontas', (r.montadas + r.entregues) + ' de ' + r.pedidos, r.parciais + ' parcial(is) · ' + r.semCesta + ' sem cesta') +
+      kpi('Entregues', r.entregues + ' de ' + r.pedidos) + kpi('Pagos', r.pagos + ' de ' + (r.pedidos - r.semCesta), r.pendentes + ' pendente(s)') + '</div>' +
+      '<div class="cards">' + kpi('Produtos', brl(v.compras)) + kpi('Frete', brl(v.frete)) + kpi('A receber (total)', brl(v.total)) +
+      kpi('Recebido por PIX', brl(v.pago)) + kpi('Em aberto', brl(v.aberto)) + '</div>';
+    h += '<b>Por fornecedor</b><div class="rolar"><table><tr><th>Fornecedor</th><th class="n">Cestas pagas</th><th class="n">Recebido PIX</th><th class="n">Saldo</th></tr>';
+    FIN.fornecedores.forEach(function (f) { h += '<tr><td>' + esc(f.nome) + '</td><td class="n">' + brl(f.vendido) + '</td><td class="n">' + brl(f.recebido) + '</td><td class="n">' + saldoTxt(f.saldo) + '</td></tr>'; });
+    h += '<tr><td>' + esc(FIN.frete.nome) + '</td><td class="n">' + brl(FIN.frete.vendido) + '</td><td class="n">—</td><td class="n">' + saldoTxt(FIN.frete.saldo) + '</td></tr></table></div>';
+    if (atualFeira() && GER && GER.feira) {
+      var falta = GER.oferta.filter(function (o) { return o.pedido > o.ofertado + 1e-9; });
+      var sobra = GER.oferta.filter(function (o) { return o.saldo > 1e-9; });
+      h += '<p><b>Produtos em falta</b> (pedido maior que a oferta): ' + (falta.length ? falta.map(function (o) { return esc(o.produto) + ' (pedido ' + qtdTxt(o.pedido) + ' / oferta ' + qtdTxt(o.ofertado) + ')'; }).join('; ') : 'nenhum') + '</p>';
+      h += '<p><b>Sobras</b> (oferta ainda sem cesta): ' + (sobra.length ? sobra.map(function (o) { return esc(o.produto) + ' ' + qtdTxt(o.saldo); }).join('; ') : 'nenhuma') + '</p>';
+    }
+    $('vPainel').innerHTML = h;
+  }
+
+  // ---------- pedidos ----------
+  function desenharPedidos() {
+    var h = '<b>Pedidos (' + FIN.pedidos.length + ')</b><div class="rolar"><table><tr><th>Nº</th><th>Cliente</th><th>Cesta</th><th class="n">Total</th><th>Pagamento</th><th></th></tr>';
+    FIN.pedidos.forEach(function (p) {
+      var edita = ehG() && p.status !== 'Cancelado' && p.status !== 'Entregue';
+      var acao = atualFeira() ? '<button class="sec" onclick="abrir(\'' + esc(p.pedido) + '\')">' + (edita ? 'Montar cesta' : 'Ver') + '</button>' : '';
+      h += '<tr><td>' + esc(p.pedido.split('-').pop()) + '</td><td>' + esc(p.cliente) + '<br><span class="pequeno">' + esc(p.bairro) + '</span></td><td><span class="tag">' + esc(p.status) + '</span></td>' +
+           '<td class="n">' + (p.compras > 0 ? brl(p.total) : '—') + '</td><td>' + tagSit(p) + '</td><td>' + acao + '</td></tr>';
+    });
+    $('vPedidos').innerHTML = h + '</table></div>' + (FIN.pedidos.length ? '' : '<p class="pequeno">Nenhum pedido recebido ainda.</p>') +
+      (atualFeira() ? '' : '<p class="pequeno">Para abrir ou montar cestas, selecione a feira em andamento.</p>');
+  }
+
+  // ---------- oferta × pedidos ----------
+  function desenharOferta() {
+    if (!GER || !GER.feira) { $('vOferta').innerHTML = '<div class="msg info">Não há feira em andamento.</div>'; return; }
+    var h = '<b>Oferta dos fornecedores × pedidos</b> <span class="pequeno">(feira em andamento: ' + esc(GER.feira.dataBR) + ')</span><div class="rolar"><table><tr><th>Produto</th><th class="n">Ofertado</th><th class="n">Pedido</th><th class="n">Alocado</th><th class="n">Saldo</th></tr>';
+    GER.oferta.forEach(function (o) {
+      var alerta = o.pedido > o.ofertado ? ' style="color:#b3261e;font-weight:bold"' : '';
+      h += '<tr><td><b>' + esc(o.produto) + '</b> <span class="pequeno">' + esc(o.un) + ' · ' + brl(o.preco) + '</span><br><span class="pequeno">' + esc(o.fornecedores) + '</span></td>' +
+           '<td class="n">' + qtdTxt(o.ofertado) + '</td><td class="n"' + alerta + '>' + qtdTxt(o.pedido) + '</td><td class="n">' + qtdTxt(o.alocado) + '</td><td class="n">' + qtdTxt(o.saldo) + '</td></tr>';
+    });
+    $('vOferta').innerHTML = h + '</table></div><p class="pequeno">Pedido em vermelho = pedidos maiores que a oferta.</p>';
+  }
+
+  // ---------- acerto e PIX ----------
+  function pixDe(nome) {
+    var f = FIN.fornecedores.filter(function (x) { return x.nome === nome; })[0];
+    return f ? ' (PIX ' + (f.tipo ? f.tipo + ': ' : '') + f.pix + ')' : ' (entregador: combinar com o gerente)';
+  }
+  function desenharAcerto() {
+    var h = '<b>Acerto da feira de ' + esc(FIN.feira.dataBR) + '</b><p class="pequeno">Conta os pedidos na proporção do que o cliente já pagou. O frete recebido pertence ao entregador, não ao fornecedor. Saldo positivo = fornecedor tem a receber; negativo = recebeu a mais e deve repassar.</p>' +
+      '<div class="rolar"><table><tr><th>Fornecedor e PIX</th><th class="n">Cestas pagas</th><th class="n">Recebido PIX</th><th class="n">Saldo</th><th>Ciente</th><th></th></tr>';
+    FIN.fornecedores.forEach(function (f, i) {
+      h += '<tr><td><b>' + esc(f.nome) + '</b><br><span class="pequeno">' + (f.pix ? esc((f.tipo ? f.tipo + ': ' : '') + f.pix) : 'sem chave PIX cadastrada') + '</span><br><span class="pequeno">total das cestas: ' + brl(f.cestas) + '</span></td>' +
+           '<td class="n">' + brl(f.vendido) + '</td><td class="n">' + brl(f.recebido) + '</td><td class="n">' + saldoTxt(f.saldo) + '</td>' +
+           '<td>' + (f.ciente ? '<span class="tag ok">ciente</span>' : '<span class="pequeno">—</span>') + '</td><td><button class="sec" onclick="enviarAcerto(' + i + ')">WhatsApp</button></td></tr>';
+    });
+    h += '<tr><td><b>' + esc(FIN.frete.nome) + '</b><br><span class="pequeno">frete total das cestas: ' + brl(FIN.frete.cestas) + '</span></td><td class="n">' + brl(FIN.frete.vendido) + '</td><td class="n">—</td><td class="n">' + saldoTxt(FIN.frete.saldo) + '</td><td></td><td></td></tr></table></div>';
+    h += '<p><b>Transferências sugeridas</b></p>';
+    h += FIN.transferencias.length ? '<ul>' + FIN.transferencias.map(function (t) { return '<li><b>' + esc(t.de) + '</b> → <b>' + esc(t.para) + '</b>: ' + brl(t.valor) + '<span class="pequeno">' + esc(pixDe(t.para)) + '</span></li>'; }).join('') + '</ul>' : '<p class="pequeno">Nenhuma transferência necessária por enquanto.</p>';
+    if (Math.abs(FIN.diferenca) > 0.01) h += '<div class="msg err">Diferença de conciliação de ' + brl(FIN.diferenca) + '. Verifique pagamentos a mais (devolução ao cliente) ou lançados no fornecedor errado.</div>';
+    h += '<p class="pequeno">Pedidos ainda não pagos ficam fora do acerto: ' + FIN.resumo.pendentes + ' pedido(s), ' + brl(FIN.valores.aberto) + ' em aberto.</p>' +
+         '<p><button onclick="salvarAcerto()">Salvar acerto na planilha</button> <span id="mA"></span></p>';
+    $('vAcerto').innerHTML = h;
+  }
+  function salvarAcerto() {
+    api('apiAcertoSalvar', PIN, FIN.feira.data).then(function () { msg('mA', 'Acerto salvo na aba Acerto.', 'ok'); atualizar(); }).catch(function (e) { msg('mA', e.message, 'err'); });
+  }
+  function enviarAcerto(i) {
+    var f = FIN.fornecedores[i];
+    if (!f.whatsapp) { alert('Cadastre o WhatsApp deste fornecedor na aba Fornecedores da planilha.'); return; }
+    var l = [];
+    FIN.transferencias.forEach(function (t) {
+      if (t.de === f.nome) l.push('• Você deve transferir ' + brl(t.valor) + ' para ' + t.para + pixDe(t.para));
+      else if (t.para === f.nome) l.push('• Você deve receber ' + brl(t.valor) + ' de ' + t.de);
+    });
+    var tx = f.saldo > 0.005 ? 'crédito: você tem ' + brl(f.saldo) + ' a receber' : (f.saldo < -0.005 ? 'débito: você deve repassar ' + brl(-f.saldo) : 'tudo quitado');
+    var txt = 'Olá, ' + f.nome + '! Acerto da Feira Agroecológica (' + FIN.feira.dataBR + '):\n\nTotal das suas cestas já pagas: ' + brl(f.vendido) + '\nRecebido por PIX na sua conta: ' + brl(f.recebido) + '\nSaldo — ' + tx + '\n' +
+      (l.length ? '\n' + l.join('\n') + '\n' : '') + '\nConfira no aplicativo, em "Meu acerto", e confirme que está ciente. Obrigado!';
+    var n = f.whatsapp; if (n.length <= 11) n = '55' + n;
+    window.open('https://wa.me/' + n + '?text=' + encodeURIComponent(txt), '_blank');
+  }
+
+  // ---------- histórico ----------
+  function desenharHist() {
+    var opts = '<option value="">Todas as feiras</option>' + FIN.feiras.map(function (f) { return '<option value="' + esc(f.data) + '">' + esc(f.dataBR) + '</option>'; }).join('');
+    $('vHist').innerHTML = '<b>Histórico de pedidos</b><p class="pequeno">Filtre por feira e por cliente, bairro ou nº do pedido.</p>' +
+      '<div class="lin"><select id="hf">' + opts + '</select><input id="ht" placeholder="cliente, bairro ou nº" onkeydown="if(event.key===\'Enter\')buscarHist()"><button onclick="buscarHist()">Buscar</button></div>' +
+      (ehG() ? '<p><button class="sec" onclick="atualizarPlanilhaHist()">Atualizar a aba Histórico da planilha</button></p>' : '') + '<div id="hr"></div>';
+    buscarHist();
+  }
+  function buscarHist() {
+    api('apiHistorico', PIN, $('hf').value, $('ht').value).then(function (d) {
+      HIST = d.pedidos;
+      var h = '<p class="pequeno">' + d.total + ' pedido(s)' + (d.total > HIST.length ? ' (mostrando os ' + HIST.length + ' mais recentes)' : '') + '. Toque numa linha para ver os itens.</p><div class="rolar"><table><tr><th>Feira</th><th>Pedido</th><th>Cliente</th><th class="n">Total</th><th class="n">Pago</th><th>Situação</th></tr>';
+      HIST.forEach(function (p, i) {
+        h += '<tr class="clic" onclick="detalheHist(' + i + ')"><td>' + esc(p.dataBR) + '</td><td>' + esc(p.pedido.split('-').pop()) + '</td><td>' + esc(p.cliente) + '<br><span class="pequeno">' + esc(p.bairro) + '</span></td><td class="n">' + brl(p.total) + '</td><td class="n">' + brl(p.pago) + '</td><td><span class="tag">' + esc(p.status) + '</span></td></tr>' +
+             '<tr id="hd' + i + '" class="oculto"><td colspan="6" class="pequeno">' + (p.itens.length ? p.itens.map(function (it) { return esc(it.produto) + ' — ' + qtdTxt(it.qtd) + ' × ' + brl(it.preco) + ' = ' + brl(it.total) + ' (' + esc(it.fornecedor) + ')'; }).join('<br>') + (p.frete ? '<br>Frete: ' + brl(p.frete) : '') : 'Sem cesta montada.') + '</td></tr>';
+      });
+      $('hr').innerHTML = h + '</table></div>';
+    }).catch(function (e) { $('hr').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+  }
+  function detalheHist(i) { $('hd' + i).classList.toggle('oculto'); }
+  function atualizarPlanilhaHist() { api('apiHistoricoAtualizar', PIN).then(function (r) { alert('Aba Histórico atualizada: ' + r.linhas + ' linhas.'); }).catch(function (e) { alert(e.message); }); }
+
+  // ---------- montagem da cesta ----------
+  function abrir(num) { api('apiGerentePedido', PIN, num).then(function (d) { PED = d; desenharCesta(); }).catch(function (e) { alert(e.message); }); }
+  function voltar() { $('cesta').classList.add('oculto'); $('painel').classList.remove('oculto'); atualizar(); }
+  function somenteLeitura() { return !ehG() || PED.pedido.status === 'Entregue' || PED.pedido.status === 'Cancelado'; }
+
+  function desenharCesta() {
+    $('painel').classList.add('oculto'); $('cesta').classList.remove('oculto'); msg('m3', '');
+    var c = PED.cliente, ro = somenteLeitura();
+    $('cli').innerHTML = '<b>Pedido ' + esc(PED.pedido.num) + '</b> <span class="tag">' + esc(PED.pedido.status) + '</span><br>' +
+      esc(c.nome) + ' · ' + esc(c.whatsapp) + '<br><span class="pequeno">' + esc(c.endereco) + ' — ' + esc(c.bairro) + (c.obs ? ' · ' + esc(c.obs) : '') + '</span>' +
+      (ehG() ? '' : '<div class="msg info">Modo coordenação: você pode consultar a cesta e registrar pagamentos, mas não alterar a cesta.</div>');
+    var h = '';
+    PED.itens.forEach(function (it, i) {
+      h += '<div class="card"><b>' + esc(it.produto) + '</b> — pedido: <b>' + qtdTxt(it.qtd) + '</b> ' + esc(it.un) + ' · ' + brl(it.preco) +
+           '<div id="rows' + i + '"></div><button class="sec" onclick="addLinha(' + i + ')">+ fornecedor</button> <span id="falta' + i + '" class="pequeno"></span></div>';
+    });
+    $('itens').innerHTML = h;
+    PED.itens.forEach(function (it, i) {
+      if (it.alocacoes.length) it.alocacoes.forEach(function (a) { addLinha(i, a.fornecedor, a.qtd); }); else addLinha(i);
+    });
+    var pixSel = PED.pedido.pix || '';
+    if (!pixSel) { PED.itens.forEach(function (it) { if (!pixSel && it.alocacoes.length) pixSel = it.alocacoes[0].fornecedor; }); }
+    $('pix').innerHTML = '<option value="">— escolher —</option>' + PED.pixOpcoes.map(function (p) {
+      return '<option value="' + esc(p.fornecedor) + '"' + (p.fornecedor === pixSel ? ' selected' : '') + '>' + esc(p.fornecedor) + '</option>'; }).join('');
+    if (ro) { $('itens').querySelectorAll('select,input,button').forEach(function (e) { e.disabled = true; }); }
+    $('pix').disabled = ro;
+    $('bSalvar').classList.toggle('oculto', ro);
+    $('bWpp').classList.toggle('oculto', !ehG());
+    $('bWpp').disabled = !(PED.pedido.status === 'Montado' || PED.pedido.status === 'Parcial' || PED.pedido.status === 'Entregue');
+    var cestaOk = PED.pedido.status === 'Montado' || PED.pedido.status === 'Parcial' || PED.pedido.status === 'Entregue';
+    $('bEnt').classList.toggle('oculto', !ehG() || !cestaOk);
+    $('bEnt').textContent = PED.pedido.status === 'Entregue' ? 'Desmarcar entrega' : 'Marcar como entregue';
+    $('bCanc').classList.toggle('oculto', !ehG() || PED.pedido.status === 'Cancelado');
+    $('freteIn').value = PED.frete ? PED.frete : (PED.freteDefinido || PED.freteSalvo ? '0' : '');
+    $('freteIn').disabled = ro;
+    mostrarPix(); recalcular(); desenharPag();
+  }
+
+  function addLinha(i, forn, qtd) {
+    var it = PED.itens[i], div = document.createElement('div');
+    div.className = 'lin';
+    div.innerHTML = '<select onchange="recalcular()"><option value="">— fornecedor —</option>' +
+      it.opcoes.map(function (o) { return '<option value="' + esc(o.fornecedor) + '"' + (o.fornecedor === forn ? ' selected' : '') + '>' + esc(o.fornecedor) + ' (resta ' + qtdTxt(o.saldo) + ')</option>'; }).join('') +
+      '</select><input type="number" min="0" step="any" inputmode="decimal" placeholder="qtd" value="' + (qtd ? esc(qtd) : '') + '" oninput="recalcular()">' +
+      '<button class="sec" onclick="this.parentNode.remove();recalcular()">×</button>';
+    $('rows' + i).appendChild(div);
+  }
+  function coletar() {
+    var alocs = [];
+    PED.itens.forEach(function (it, i) {
+      $('rows' + i).querySelectorAll('.lin').forEach(function (l) {
+        var f = l.querySelector('select').value, q = lerNum(l.querySelector('input').value);
+        if (f && q > 0) alocs.push({ cod: it.cod, fornecedor: f, qtd: q });
+      });
+    });
+    return alocs;
+  }
+  function recalcular() {
+    var alocs = coletar(), tot = 0;
+    PED.itens.forEach(function (it, i) {
+      var s = 0; alocs.forEach(function (a) { if (a.cod === it.cod) s += a.qtd; });
+      tot += s * it.preco;
+      var falta = Math.round((it.qtd - s) * 1000) / 1000;
+      $('falta' + i).innerHTML = falta > 0 ? 'falta alocar ' + qtdTxt(falta) : (falta < 0 ? '<span style="color:#b3261e">acima do pedido</span>' : '✔ completo');
+    });
+    var digitado = $('freteIn').value !== '', fr = tot > 0 ? (digitado ? lerNum($('freteIn').value) : PED.frete) : 0, aviso = '';
+    if (!digitado && !PED.freteDefinido && !PED.freteSalvo) aviso = '<div class="msg info">Não há frete cadastrado para o bairro "' + esc(PED.cliente.bairro) + '". Digite o valor do frete acima (ou cadastre o bairro na aba Fretes).</div>';
+    else if (PED.freteSalvo && Math.abs(PED.freteAtual - PED.frete) > 0.001) aviso = '<div class="msg info">O frete na planilha mudou para ' + brl(PED.freteAtual) + '. Salve a cesta de novo para aplicar.</div>';
+    $('tot').innerHTML = 'Produtos: <b>' + brl(tot) + '</b><br>Frete (' + esc(PED.cliente.bairro) + '): <b>' + brl(fr) + '</b><br>' +
+      '<span style="font-size:18px">Total a pagar: <b>' + brl(tot + fr) + '</b></span>' + aviso;
+  }
+  function pixAtual() { var n = $('pix').value; return PED.pixOpcoes.filter(function (p) { return p.fornecedor === n; })[0] || null; }
+  function mostrarPix() { var p = pixAtual(); $('pixInfo').textContent = p ? (p.tipo ? p.tipo + ': ' : '') + p.pix : 'Escolha de quem é a conta PIX que o cliente vai usar.'; }
+
+  function salvar() {
+    $('bSalvar').disabled = true; msg('m3', 'Salvando...', 'info');
+    api('apiGerenteSalvar', PIN, PED.pedido.num, coletar(), $('pix').value, $('freteIn').value).then(function (r) {
+      return api('apiGerentePedido', PIN, PED.pedido.num).then(function (d) {
+        PED = d; desenharCesta(); msg('m3', 'Cesta salva (' + r.status + ') — total a pagar ' + brl(r.totalGeral) + (PED.pedido.pix ? '' : '. Atenção: nenhuma conta PIX indicada.'), 'ok');
+      });
+    }).catch(function (e) { msg('m3', e.message, 'err'); }).then(function () { $('bSalvar').disabled = false; });
+  }
+  function entregue() {
+    var sim = PED.pedido.status !== 'Entregue';
+    api('apiPedidoEntregue', PIN, PED.pedido.num, sim).then(function () { return api('apiGerentePedido', PIN, PED.pedido.num); })
+      .then(function (d) { PED = d; desenharCesta(); msg('m3', sim ? 'Pedido marcado como entregue.' : 'Entrega desmarcada.', 'ok'); })
+      .catch(function (e) { msg('m3', e.message, 'err'); });
+  }
+  function cancelarPedido() {
+    var m = prompt('Motivo do cancelamento (opcional):');
+    if (m === null) return;
+    api('apiPedidoCancelar', PIN, PED.pedido.num, m).then(function () { voltar(); }).catch(function (e) { msg('m3', e.message, 'err'); });
+  }
+
+  // ---------- pagamentos do pedido ----------
+  function desenharPag() {
+    var falta = Math.max(0, Math.round((PED.totalCesta - PED.pago) * 100) / 100);
+    var h = '<b>Pagamentos</b><p class="pequeno">Total a pagar: <b>' + brl(PED.totalCesta) + '</b> · Pago: <b>' + brl(PED.pago) + '</b> · Falta: <b>' + brl(falta) + '</b></p>';
+    PED.pagamentos.forEach(function (p) {
+      h += '<div class="lin" style="align-items:center"><div style="flex:3">' + (p.conf ? '' : '<s>') + brl(p.valor) + ' → ' + esc(p.fornecedor) + ' · ' + esc(p.data) + (p.comp ? ' · ' + esc(p.comp) : '') + (p.conf ? '' : '</s> (cancelado)') + '</div>' +
+           (p.conf ? '<button class="sec" onclick="cancelarPag(' + p.linha + ')">Cancelar</button>' : '') + '</div>';
+    });
+    var cestaOk = PED.pedido.status === 'Montado' || PED.pedido.status === 'Parcial' || PED.pedido.status === 'Entregue';
+    if (cestaOk) {
+      var pf = PED.pedido.pix || '';
+      h += '<label for="pgF">Quem recebeu o PIX</label><select id="pgF"><option value="">— escolher —</option>' + PED.pixOpcoes.map(function (p) { return '<option value="' + esc(p.fornecedor) + '"' + (p.fornecedor === pf ? ' selected' : '') + '>' + esc(p.fornecedor) + '</option>'; }).join('') + '</select>' +
+           '<label for="pgV">Valor (R$)</label><input id="pgV" type="number" step="0.01" value="' + (falta || '') + '">' +
+           '<label for="pgD">Data</label><input id="pgD" type="date" value="' + hoje() + '">' +
+           '<label for="pgC">Comprovante / observação</label><input id="pgC" placeholder="ex.: PIX recebido às 14:32 (devolução: use valor negativo e explique)">' +
+           '<p><button onclick="registrarPag()">Registrar pagamento</button></p>';
+    } else { h += '<p class="pequeno">Monte a cesta para registrar pagamentos.</p>'; }
+    $('pag').innerHTML = h;
+  }
+  function recarregarPedido(texto) {
+    api('apiGerentePedido', PIN, PED.pedido.num).then(function (d) { PED = d; desenharCesta(); msg('m4', texto, 'ok'); }).catch(function (e) { msg('m4', e.message, 'err'); });
+  }
+  function registrarPag() {
+    api('apiPagamentoRegistrar', PIN, PED.pedido.num, $('pgF').value, $('pgV').value, $('pgD').value, $('pgC').value)
+      .then(function () { recarregarPedido('Pagamento registrado.'); }).catch(function (e) { msg('m4', e.message, 'err'); });
+  }
+  function cancelarPag(linha) {
+    if (!confirm('Cancelar este pagamento?')) return;
+    api('apiPagamentoCancelar', PIN, PED.pedido.num, linha).then(function () { recarregarPedido('Pagamento cancelado.'); }).catch(function (e) { msg('m4', e.message, 'err'); });
+  }
+
+  function whats() {
+    var c = PED.cliente, compras = 0, linhas = [];
+    PED.itens.forEach(function (it) {
+      var q = 0; it.alocacoes.forEach(function (a) { q += a.qtd; });
+      if (q <= 0) return;
+      compras += q * it.preco;
+      linhas.push('• ' + it.produto + ' (' + it.un + ') – ' + qtdTxt(q) + ' × ' + brl(it.preco) + ' = ' + brl(q * it.preco) + (q < it.qtd ? ' [pedido: ' + qtdTxt(it.qtd) + ']' : ''));
+    });
+    var frete = compras > 0 ? PED.frete : 0, p = pixAtual();
+    var txt = 'Olá, ' + c.nome + '! Sua cesta da Feira Agroecológica (' + PED.feira.dataBR + '):\n\n' + linhas.join('\n') + '\n\n' +
+      'Produtos: ' + brl(compras) + '\nFrete: ' + (frete > 0 ? brl(frete) : 'sem custo') + '\n' +
+      'Total a pagar: ' + brl(compras + frete) + '\n\n' +
+      (p ? 'Pagamento por PIX (' + (p.tipo || 'chave') + '): ' + p.pix + ' — titular: ' + p.fornecedor + '\n' : '') +
+      'Envie o comprovante por aqui. Obrigado!';
+    var n = c.whatsapp; if (n.length <= 11) n = '55' + n;
+    window.open('https://wa.me/' + n + '?text=' + encodeURIComponent(txt), '_blank');
+  }
+
+  // ---------- fichas de entrega ----------
+  var FICHAS = [];
+  function carregarFichas() {
+    $('vFichas').innerHTML = '<div class="msg info">Carregando fichas...</div>';
+    api('apiFichas', PIN).then(function (d) { FICHAS = d.fichas; desenharFichas(); })
+      .catch(function (e) { $('vFichas').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+  }
+  function desenharFichas() {
+    if (!FICHAS.length) { $('vFichas').innerHTML = '<b>Fichas de entrega</b><p class="pequeno">Ainda não há cestas montadas nesta feira.</p>'; return; }
+    var h = '<b>Fichas de entrega (' + FICHAS.length + ')</b><p class="pequeno">Marque as cestas a imprimir. Saem 4 fichas por folha A4, para recortar.</p>' +
+      '<p><label style="font-weight:normal">Ordem de impressão: <select id="ordF" style="width:auto"><option value="bairro">por bairro (roteiro de entrega)</option><option value="nome">por nome do cliente</option><option value="pedido">por nº do pedido</option></select></label></p><table>';
+    FICHAS.forEach(function (f, i) {
+      h += '<tr><td class="cb"><input type="checkbox" id="fx' + i + '" checked></td><td><b>' + esc(f.cliente.nome) + '</b> <span class="pequeno">' + esc(f.cliente.bairro) +
+           '</span><br><span class="pequeno">Pedido ' + esc(f.pedido.split('-').pop()) + ' · ' + brl(f.totalGeral) + (f.frete > 0 ? ' (com frete)' : '') + '</span></td><td><span class="tag">' + esc(f.status) + '</span></td></tr>';
+    });
+    h += '</table><p><button onclick="imprimirFichas()">Gerar e imprimir fichas</button> <button class="sec" onclick="marcarFichas(true)">Marcar todas</button> <button class="sec" onclick="marcarFichas(false)">Desmarcar</button></p>';
+    $('vFichas').innerHTML = h;
+  }
+  function marcarFichas(v) { FICHAS.forEach(function (f, i) { $('fx' + i).checked = v; }); }
+
+  function foneBR(d) {
+    d = String(d || '').replace(/^55(?=\d{10,11}$)/, '');
+    if (d.length === 11) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+    if (d.length === 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+    return d;
+  }
+  function tabItens(itens) {
+    return '<table class="it"><tr><th>Produto</th><th class="n">Qtd</th><th class="n">R$</th></tr>' + itens.map(function (it) {
+      var parc = it.qtd < it.pedido - 1e-9;
+      return '<tr><td>' + esc(it.produto) + ' <span class="un">(' + esc(it.un) + ')</span>' + (parc ? ' <i>*pedido ' + qtdTxt(it.pedido) + '</i>' : '') +
+             '</td><td class="n">' + qtdTxt(it.qtd) + '</td><td class="n">' + brl(it.total).replace('R$ ', '') + '</td></tr>';
+    }).join('') + '</table>';
+  }
+  function htmlFicha(f, dupla, dataBR) {
+    var c = f.cliente, n = f.itens.length, meio = Math.ceil(n / 2);
+    var corpo = dupla ? '<div class="duas">' + tabItens(f.itens.slice(0, meio)) + tabItens(f.itens.slice(meio)) + '</div>' : tabItens(f.itens);
+    return '<div class="ficha' + (dupla ? ' dupla' : '') + (n > 20 ? ' mini' : '') + '">' +
+      '<div class="topo"><b>Feira Agroecológica · ' + esc(dataBR) + '</b><span>Pedido ' + esc(f.pedido) + '</span></div>' +
+      '<div class="cli"><b>' + esc(c.nome) + '</b> · ' + esc(foneBR(c.whatsapp)) + '<br>' + esc(c.endereco) + ' — <b>' + esc(c.bairro) + '</b>' + (c.obs ? '<br><i>' + esc(c.obs) + '</i>' : '') + '</div>' +
+      '<div class="corpo">' + corpo + '</div>' +
+      '<div class="tot">' + (f.frete > 0 ? '<span class="sub">Produtos ' + brl(f.total) + ' · Frete ' + brl(f.frete) + '</span><br>' : '') + 'Total: ' + brl(f.totalGeral) + '</div>' +
+      (f.pix ? '<div class="pix">PIX (' + esc(f.pix.tipo || 'chave') + '): ' + esc(f.pix.pix) + ' — ' + esc(f.pix.fornecedor) + '</div>' : '') +
+      '<div class="ent"><div><span class="cx"></span> Entregue em ___/___/______ às ___:___</div><div>Recebido por: ________________________</div><div>Assinatura: __________________________</div></div></div>';
+  }
+  function htmlFichas(sel, dataBR) {
+    var paginas = [], atual = [], slot = 0;
+    function nova() { paginas.push('<div class="pagina">' + atual.join('') + '</div>'); atual = []; slot = 0; }
+    sel.forEach(function (f) {
+      var dupla = f.itens.length > 12;
+      if (slot >= 4) nova();
+      if (dupla && slot % 2 === 1) { atual.push('<div></div>'); slot++; }
+      if (slot >= 4) nova();
+      atual.push(htmlFicha(f, dupla, dataBR)); slot += dupla ? 2 : 1;
+    });
+    if (atual.length) nova();
+    var css = '@page{size:A4;margin:6mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}' +
+      '.pagina{width:198mm;height:285mm;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;page-break-after:always;break-after:page}' +
+      '.pagina:last-child{page-break-after:auto;break-after:auto}' +
+      '.ficha{border:1px dashed #666;padding:3.5mm;overflow:hidden;font-size:8.5pt;display:flex;flex-direction:column}.ficha.dupla{grid-column:1/-1}' +
+      '.topo{display:flex;justify-content:space-between;border-bottom:1px solid #000;padding-bottom:1mm;margin-bottom:1.5mm;font-size:8pt}' +
+      '.cli{margin-bottom:1.5mm;line-height:1.3}.corpo{flex:1}.duas{display:flex;gap:4mm}.duas .it{flex:1}' +
+      'table.it{width:100%;border-collapse:collapse}.it th{font-size:7.5pt;text-align:left;border-bottom:1px solid #000}.it td,.it th{padding:.6mm 1mm}.it td{border-bottom:1px dotted #aaa}' +
+      '.n{text-align:right;white-space:nowrap}.un{color:#444;font-size:7.5pt}.mini{font-size:7pt}.mini .it td{padding:.2mm 1mm}' +
+      '.tot{text-align:right;font-weight:bold;font-size:10pt;margin-top:1mm}.sub{font-weight:normal;font-size:8pt}.pix{font-size:7.5pt;margin-top:1mm}' +
+      '.ent{margin-top:2mm;border-top:1px solid #000;padding-top:1.5mm;font-size:8pt;line-height:1.9}' +
+      '.cx{display:inline-block;width:3.2mm;height:3.2mm;border:1px solid #000;vertical-align:middle;margin-right:1mm}' +
+      '.nao-imprimir{position:fixed;top:8px;right:8px;z-index:9}@media print{.nao-imprimir{display:none}}' +
+      '@media screen{body{background:#ddd}.pagina{background:#fff;margin:10px auto;box-shadow:0 0 4px #888}}';
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Fichas de entrega</title><style>' + css + '</style></head><body>' +
+      '<div class="nao-imprimir"><button onclick="window.print()" style="padding:8px 14px;font-size:14px">Imprimir</button></div>' + paginas.join('') + '</body></html>';
+  }
+  function imprimirFichas() {
+    var sel = FICHAS.filter(function (f, i) { return $('fx' + i).checked; });
+    if (!sel.length) { alert('Marque ao menos uma ficha.'); return; }
+    var ord = $('ordF').value;
+    sel.sort(function (a, b) {
+      if (ord === 'pedido') return a.pedido < b.pedido ? -1 : 1;
+      if (ord === 'nome') return a.cliente.nome.localeCompare(b.cliente.nome, 'pt-BR');
+      return (a.cliente.bairro + '|' + a.cliente.nome).localeCompare(b.cliente.bairro + '|' + b.cliente.nome, 'pt-BR');
+    });
+    var dataBR = GER && GER.feira ? GER.feira.dataBR : '';
+    var w = window.open('', '_blank');
+    if (!w) { alert('O navegador bloqueou a nova janela. Permita pop-ups para este site e tente de novo.'); return; }
+    w.document.open(); w.document.write(htmlFichas(sel, dataBR)); w.document.close();
+    setTimeout(function () { w.focus(); w.print(); }, 700);
+  }
+</script>
+</body>
+</html>

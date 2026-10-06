@@ -1,0 +1,32 @@
+{
+  "name": "Feira · Fornecedor",
+  "short_name": "Fornecedor",
+  "id": "./fornecedor.html",
+  "start_url": "./fornecedor.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f8f6",
+  "theme_color": "#2e6b3a",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icons/fornecedor-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/fornecedor-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/fornecedor-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

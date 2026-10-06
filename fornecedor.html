@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><meta name="theme-color" content="#2e6b3a"><title>Feira · Fornecedor</title><link rel="manifest" href="manifest-fornecedor.webmanifest"><link rel="icon" href="icons/fornecedor-192.png"><link rel="apple-touch-icon" href="icons/fornecedor-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Fornecedor"><link rel="stylesheet" href="css/estilo.css"><script src="js/config.js"></script><script src="js/api.js"></script><script src="js/pwa.js"></script></head>
+<body>
+<header><b>🌱 Fornecedor</b><small id="sub"></small></header>
+<main>
+  <div id="login" class="card">
+    <label for="nome">Seu nome</label><select id="nome"></select>
+    <label for="pin">Seu PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="off">
+    <p><button id="bEntrar" onclick="entrar()">Entrar</button></p>
+    <div id="m1"></div>
+  </div>
+
+  <div id="app" class="oculto">
+    <div class="card nav">
+      <button id="n_oferta" onclick="aba('oferta')">Oferta da semana</button>
+      <button id="n_acerto" class="sec" onclick="aba('acerto')">Meu acerto</button>
+      <button id="n_rel" class="sec" onclick="aba('rel')">Relatório da feira</button>
+    </div>
+
+    <div id="vOferta">
+      <div class="card">
+        <b id="quem"></b> <span id="stat" class="tag"></span>
+        <div id="aviso"></div>
+        <label for="busca">Buscar produto</label><input id="busca" oninput="filtrar()" placeholder="digite parte do nome">
+        <p><label style="font-weight:normal"><input type="checkbox" id="soMarc" onchange="filtrar()"> mostrar só os marcados</label></p>
+      </div>
+      <div class="card"><table id="tab"></table></div>
+      <div class="card">
+        <button id="bEnviar" onclick="enviar()">Enviar minha oferta</button>
+        <span id="cont" class="pequeno"></span>
+        <div id="m2"></div>
+      </div>
+    </div>
+
+    <div id="vAcerto" class="card oculto"></div>
+    <div id="vRel" class="card oculto"></div>
+  </div>
+</main>
+<script>
+  var D = null, NOME = '', PIN = '', EXT = null;
+
+  api('apiFornecedorNomes').then(function (ns) {
+    $('nome').innerHTML = '<option value="">— escolha —</option>' + ns.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('');
+    try { var lembrado = localStorage.getItem('feira_nome'); if (lembrado) $('nome').value = lembrado; } catch (e) {}
+  }).catch(function (e) { msg('m1', e.message, 'err'); });
+
+  function entrar() {
+    NOME = $('nome').value; PIN = $('pin').value;
+    try { localStorage.setItem('feira_nome', NOME); } catch (e) {}
+    if (!NOME || !PIN) { msg('m1', 'Escolha seu nome e digite o PIN.', 'err'); return; }
+    ocupado($('bEntrar'), true); msg('m1', 'Entrando...', 'info');
+    api('apiFornecedorEntrar', NOME, PIN).then(function (d) { D = d; desenhar(); })
+      .catch(function (e) { msg('m1', e.message, 'err'); })
+      .then(function () { ocupado($('bEntrar'), false); });
+  }
+
+  function aba(n) {
+    ['oferta', 'acerto', 'rel'].forEach(function (a) {
+      $('v' + a.charAt(0).toUpperCase() + a.slice(1)).classList.toggle('oculto', a !== n);
+      $('n_' + a).classList.toggle('sec', a !== n);
+    });
+    if (n === 'acerto') carregarAcerto('');
+    if (n === 'rel') carregarRel('');
+  }
+
+  // ---------- oferta da semana ----------
+  function desenhar() {
+    $('login').classList.add('oculto'); $('app').classList.remove('oculto');
+    $('quem').textContent = 'Olá, ' + D.fornecedor + (D.admin ? ' (visto como ' + D.admin + ')' : '');
+    if (!D.feira) {
+      $('sub').textContent = ''; $('stat').textContent = 'sem feira aberta';
+      $('aviso').innerHTML = '<div class="msg info">Não há feira aberta no momento.</div>';
+    } else {
+      $('sub').textContent = 'Feira de ' + D.feira.dataBR; $('stat').textContent = D.feira.status;
+      if (!D.podeEditar) $('aviso').innerHTML = '<div class="msg info">' + (D.admin === 'coordenação' ? 'A coordenação só visualiza as ofertas.' : 'A oferta desta feira está fechada. Você pode apenas consultar o que enviou.') + '</div>';
+    }
+    var h = '';
+    D.produtos.forEach(function (p, i) {
+      h += '<tr data-i="' + i + '"><td class="cb"><input type="checkbox" id="c' + i + '" onchange="marcar(' + i + ')"' + (p.marcado ? ' checked' : '') + (D.podeEditar ? '' : ' disabled') + '></td>' +
+           '<td><b>' + esc(p.produto) + '</b><br><span class="pequeno">' + esc(p.un) + ' · ' + brl(p.preco) + '</span></td>' +
+           '<td class="qtd"><input type="number" id="q' + i + '" min="0" step="any" inputmode="decimal" placeholder="qtd" value="' + esc(p.qtd) + '"' + ((p.marcado && D.podeEditar) ? '' : ' disabled') + ' oninput="contar()"></td></tr>';
+    });
+    $('tab').innerHTML = h || '<tr><td>Nenhum produto cadastrado para você na planilha geral.</td></tr>';
+    $('bEnviar').classList.toggle('oculto', !D.podeEditar);
+    contar();
+  }
+  function marcar(i) {
+    var on = $('c' + i).checked, q = $('q' + i);
+    q.disabled = !on; if (!on) q.value = ''; else if (!q.value) q.focus();
+    contar();
+  }
+  function contar() {
+    var n = D.produtos.filter(function (p, i) { return $('c' + i).checked; }).length;
+    $('cont').textContent = n + ' produto(s) marcado(s)';
+  }
+  function filtrar() {
+    var t = $('busca').value.toLowerCase(), so = $('soMarc').checked;
+    D.produtos.forEach(function (p, i) {
+      var tr = document.querySelector('tr[data-i="' + i + '"]');
+      tr.classList.toggle('oculto', !(p.produto.toLowerCase().indexOf(t) >= 0 && (!so || $('c' + i).checked)));
+    });
+  }
+  function enviar() {
+    var itens = [], erro = '';
+    D.produtos.forEach(function (p, i) {
+      if (!$('c' + i).checked) return;
+      var q = lerNum($('q' + i).value);
+      if (q <= 0) erro = 'Informe a quantidade de "' + p.produto + '" ou desmarque o produto.';
+      itens.push({ cod: p.cod, qtd: q });
+    });
+    if (erro) { msg('m2', erro, 'err'); return; }
+    if (!itens.length && !confirm('Nenhum produto marcado. Enviar oferta vazia?')) return;
+    ocupado($('bEnviar'), true); msg('m2', 'Enviando...', 'info');
+    api('apiFornecedorEnviar', NOME, PIN, itens).then(function (r) {
+      msg('m2', 'Oferta enviada: ' + r.n + ' produto(s). Você pode alterar e reenviar enquanto a oferta estiver aberta.', 'ok');
+    }).catch(function (e) { msg('m2', e.message, 'err'); })
+      .then(function () { ocupado($('bEnviar'), false); });
+  }
+
+  // ---------- meu acerto ----------
+  function opcoesFeiras(lista, atual) {
+    return lista.map(function (f) { return '<option value="' + esc(f.data) + '"' + (f.data === atual ? ' selected' : '') + '>' + esc(f.dataBR) + ' (' + esc(f.status) + ')</option>'; }).join('');
+  }
+  function saldoTxt(s) { return s > 0.005 ? '<span class="pos">a receber ' + brl(s) + '</span>' : (s < -0.005 ? '<span class="neg">a repassar ' + brl(-s) + '</span>' : 'quitado'); }
+  function carregarAcerto(data) {
+    $('vAcerto').innerHTML = '<div class="msg info">Carregando...</div>';
+    api('apiFornecedorExtrato', NOME, PIN, data).then(function (e) { EXT = e; desenharAcerto(); })
+      .catch(function (er) { $('vAcerto').innerHTML = '<div class="msg err">' + esc(er.message) + '</div>'; });
+  }
+  function desenharAcerto() {
+    if (!EXT.feira) { $('vAcerto').innerHTML = '<div class="msg info">Ainda não há feira cadastrada.</div>'; return; }
+    var r = EXT.resumo;
+    var h = '<b>Meu acerto</b> <select id="fa" onchange="carregarAcerto(this.value)" style="width:auto">' + opcoesFeiras(EXT.feiras, EXT.feira.data) + '</select>' +
+      '<div class="cards">' +
+      '<div class="kpi"><span class="pequeno">Minhas cestas já pagas</span><b>' + brl(r.vendido) + '</b></div>' +
+      '<div class="kpi"><span class="pequeno">Recebido por PIX na minha conta</span><b>' + brl(r.recebido) + '</b></div>' +
+      '<div class="kpi"><span class="pequeno">Meu saldo</span><b>' + saldoTxt(r.saldo) + '</b></div>' +
+      '<div class="kpi"><span class="pequeno">Ainda não pago pelos clientes</span><b>' + brl(r.pendenteClientes) + '</b></div></div>';
+    if (EXT.transferencias.length) {
+      h += '<p><b>O que fazer</b></p><ul>' + EXT.transferencias.map(function (t) {
+        return t.euPago ? '<li>Transferir <b>' + brl(t.valor) + '</b> para <b>' + esc(t.para) + '</b>' + (t.pixDestino ? ' <span class="pequeno">(PIX ' + esc(t.pixDestino) + ')</span>' : ' <span class="pequeno">(combinar com o gerente)</span>') + '</li>'
+                        : '<li>Receber <b>' + brl(t.valor) + '</b> de <b>' + esc(t.de) + '</b></li>';
+      }).join('') + '</ul>';
+    }
+    if (!EXT.admin) {
+      h += EXT.resumo.ciente ? '<div class="msg ok">Você confirmou que está ciente deste acerto.</div>'
+        : '<p><button onclick="ciente()">Estou ciente deste acerto</button> <span id="mC"></span></p>';
+    }
+    h += '<p><b>Itens que vendi</b></p><div class="rolar"><table><tr><th>Cesta</th><th>Produto</th><th class="n">Qtd</th><th class="n">Valor</th><th>Pagamento</th></tr>' +
+      (EXT.itens.length ? EXT.itens.map(function (i) { return '<tr><td>' + esc(i.cesta) + '</td><td>' + esc(i.produto) + '</td><td class="n">' + qtdTxt(i.qtd) + ' × ' + brl(i.preco) + '</td><td class="n">' + brl(i.total) + '</td><td>' + esc(i.situacao) + '</td></tr>'; }).join('') : '<tr><td colspan="5">Nenhum item vendido nesta feira.</td></tr>') + '</table></div>';
+    h += '<p><b>PIX recebidos na minha conta</b></p><div class="rolar"><table><tr><th>Cesta</th><th class="n">Valor</th><th>Data</th></tr>' +
+      (EXT.recebimentos.length ? EXT.recebimentos.map(function (p) { return '<tr><td>' + esc(p.cesta) + '</td><td class="n">' + brl(p.valor) + '</td><td>' + esc(p.data) + '</td></tr>'; }).join('') : '<tr><td colspan="3">Nenhum PIX registrado.</td></tr>') + '</table></div>' +
+      '<p class="pequeno">O valor recebido inclui o frete das cestas pagas na sua conta; o frete é repassado ao entregador no acerto.</p>';
+    $('vAcerto').innerHTML = h;
+  }
+  function ciente() {
+    api('apiFornecedorCiente', NOME, PIN, EXT.feira.data, EXT.resumo.saldo).then(function () { carregarAcerto(EXT.feira.data); })
+      .catch(function (e) { msg('mC', e.message, 'err'); });
+  }
+
+  // ---------- relatório da feira ----------
+  function carregarRel(data) {
+    $('vRel').innerHTML = '<div class="msg info">Carregando...</div>';
+    api('apiRelatorioFeira', NOME, PIN, data).then(function (r) {
+      if (!r.feira) { $('vRel').innerHTML = '<div class="msg info">Ainda não há feira cadastrada.</div>'; return; }
+      var t = r.totais;
+      var h = '<b>Relatório da feira</b> <select onchange="carregarRel(this.value)" style="width:auto">' + opcoesFeiras(r.feiras, r.feira.data) + '</select>' +
+        '<div class="cards"><div class="kpi"><span class="pequeno">Pedidos</span><b>' + t.pedidos + '</b><span class="pequeno">' + t.entregues + ' entregues</span></div>' +
+        '<div class="kpi"><span class="pequeno">Produtos</span><b>' + brl(t.compras) + '</b></div><div class="kpi"><span class="pequeno">Frete</span><b>' + brl(t.frete) + '</b></div>' +
+        '<div class="kpi"><span class="pequeno">Recebido por PIX</span><b>' + brl(t.recebido) + '</b></div></div>';
+      h += '<p><b>Por produto</b></p><div class="rolar"><table><tr><th>Produto</th><th class="n">Ofertado</th><th class="n">Pedido</th><th class="n">Entregue</th><th class="n">Valor</th></tr>' +
+        r.produtos.map(function (p) { return '<tr><td><b>' + esc(p.produto) + '</b> <span class="pequeno">' + esc(p.un) + ' · ' + brl(p.preco) + '</span><br><span class="pequeno">' + esc(p.fornecedores) + '</span></td><td class="n">' + qtdTxt(p.ofertado) + '</td><td class="n">' + qtdTxt(p.pedido) + '</td><td class="n">' + qtdTxt(p.alocado) + '</td><td class="n">' + brl(p.valor) + '</td></tr>'; }).join('') + '</table></div>';
+      h += '<p><b>Por fornecedor</b></p><div class="rolar"><table><tr><th>Fornecedor</th><th class="n">Cestas pagas</th><th class="n">Recebido PIX</th><th class="n">Saldo</th></tr>' +
+        r.fornecedores.map(function (f) { return '<tr><td>' + esc(f.nome) + '</td><td class="n">' + brl(f.vendido) + '</td><td class="n">' + brl(f.recebido) + '</td><td class="n">' + saldoTxt(f.saldo) + '</td></tr>'; }).join('') +
+        '<tr><td>Frete (entregador)</td><td class="n">' + brl(r.frete.vendido) + '</td><td class="n">—</td><td class="n">' + saldoTxt(r.frete.vendido) + '</td></tr></table></div>' +
+        '<p class="pequeno">Este relatório não mostra dados dos clientes.</p>';
+      $('vRel').innerHTML = h;
+    }).catch(function (e) { $('vRel').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+  }
+</script>
+</body>
+</html>

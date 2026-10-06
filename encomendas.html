@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><meta name="theme-color" content="#b5651d"><title>Feira · Encomendas</title><link rel="manifest" href="manifest-encomendas.webmanifest"><link rel="icon" href="icons/encomendas-192.png"><link rel="apple-touch-icon" href="icons/encomendas-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Encomendas"><link rel="stylesheet" href="css/estilo.css"><script src="js/config.js"></script><script src="js/api.js"></script><script src="js/pwa.js"></script></head>
+<body>
+<header><b>🧺 Encomenda da feira agroecológica</b><small id="sub"></small></header>
+<main>
+  <div id="fechado" class="card oculto"></div>
+
+  <div id="form" class="oculto">
+    <div class="card">
+      <b>Seus dados</b>
+      <label for="nome">Nome</label><input id="nome" autocomplete="name">
+      <label for="wpp">WhatsApp (com DDD)</label><input id="wpp" type="tel" inputmode="tel" autocomplete="tel" placeholder="(87) 99999-9999">
+      <label for="end">Endereço de entrega</label><input id="end" autocomplete="street-address">
+      <label for="bairroSel">Bairro</label><select id="bairroSel" onchange="mudouBairro()"></select>
+      <input id="bairroOutro" class="oculto" placeholder="Digite o nome do seu bairro" oninput="somar()" style="margin-top:6px">
+      <label for="obs">Observações (opcional)</label><input id="obs">
+    </div>
+    <div class="card">
+      <b>Produtos desta semana</b>
+      <label for="busca">Buscar produto</label><input id="busca" oninput="filtrar()" placeholder="digite parte do nome">
+      <table id="tab"></table>
+      <p id="freteLinha"></p>
+      <p><b id="total"></b></p>
+    </div>
+    <div class="card">
+      <button id="bEnviar" onclick="enviar()">Enviar encomenda</button>
+      <div id="m"></div>
+      <p class="pequeno">Os preços são os da semana. O pagamento é feito depois, por PIX, com os dados que enviaremos pelo WhatsApp.</p>
+      <p class="pequeno"><a href="#" onclick="mostrarGer();return false;">Sou o gerente</a></p>
+      <div id="ger" class="oculto"><label for="pinG">PIN do gerente</label><input id="pinG" type="password" inputmode="numeric">
+        <p><button class="sec" onclick="carregar()">Ativar modo gerente</button></p></div>
+    </div>
+  </div>
+
+  <div id="ok" class="card oculto"></div>
+</main>
+<script>
+  var PROD = [], GER = '', FRETES = [];
+  function semAcento(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); }
+  function getBairro() { var v = $('bairroSel').value; return v === '__outro__' ? $('bairroOutro').value : v; }
+  function freteDoBairro() { var k = semAcento(getBairro()), r = null; if (!k) return null; FRETES.forEach(function (f) { if (semAcento(f.bairro) === k) r = f.valor; }); return r; }
+  function mudouBairro() { $('bairroOutro').classList.toggle('oculto', $('bairroSel').value !== '__outro__'); somar(); }
+
+  function carregar() {
+    GER = $('pinG') ? $('pinG').value : '';
+    api('apiPedidoInicio', GER).then(function (d) {
+      $('sub').textContent = d.feira ? 'Feira de ' + d.feira.dataBR : '';
+      if (!d.aberto) {
+        $('form').classList.add('oculto'); $('fechado').classList.remove('oculto');
+        $('fechado').innerHTML = '<div class="msg info">' + esc(d.motivo) + '</div>';
+        return;
+      }
+      $('fechado').classList.add('oculto'); $('form').classList.remove('oculto');
+      if (d.gerente) msg('m', 'Modo gerente ativo: pedidos aceitos também na fase de entrega.', 'ok');
+      PROD = d.produtos; FRETES = d.fretes || [];
+      var h = '';
+      PROD.forEach(function (p, i) {
+        h += '<tr data-i="' + i + '"><td><b>' + esc(p.produto) + '</b><br><span class="pequeno">' + esc(p.un) + ' · ' + brl(p.preco) + '</span></td>' +
+             '<td class="qtd"><input type="number" id="q' + i + '" min="0" step="any" inputmode="decimal" placeholder="0" oninput="somar()"></td></tr>';
+      });
+      $('tab').innerHTML = h || '<tr><td>Ainda não há produtos disponíveis.</td></tr>';
+      var sel = $('bairroSel').value;
+      $('bairroSel').innerHTML = '<option value="">— escolha seu bairro —</option>' + FRETES.map(function (f) { return '<option value="' + esc(f.bairro) + '">' + esc(f.bairro) + '</option>'; }).join('') + '<option value="__outro__">Outro bairro (não está na lista)</option>';
+      if (sel) $('bairroSel').value = sel;
+      if (!FRETES.length) { $('bairroSel').value = '__outro__'; }
+      mudouBairro();
+    }).catch(function (e) { msg('m', e.message, 'err'); });
+  }
+
+  function somar() {
+    var t = 0, n = 0;
+    PROD.forEach(function (p, i) { var q = lerNum($('q' + i).value); if (q > 0) { t += q * p.preco; n++; } });
+    var f = freteDoBairro(), b = getBairro();
+    $('freteLinha').innerHTML = f !== null ? 'Frete para <b>' + esc(b) + '</b>: <b>' + brl(f) + '</b>'
+      : (b ? '<span class="pequeno">Frete de "' + esc(b) + '": será informado pelo gerente ao montar a sua cesta.</span>' : '<span class="pequeno">Escolha o seu bairro para ver o frete.</span>');
+    $('total').textContent = !n ? '' : n + ' produto(s) · produtos ' + brl(t) +
+      (f !== null ? ' + frete ' + brl(f) + ' = total estimado ' + brl(t + f) : '');
+  }
+  function filtrar() {
+    var t = $('busca').value.toLowerCase();
+    PROD.forEach(function (p, i) {
+      document.querySelector('tr[data-i="' + i + '"]').classList.toggle('oculto', p.produto.toLowerCase().indexOf(t) < 0);
+    });
+  }
+  function mostrarGer() { $('ger').classList.toggle('oculto'); }
+
+  function enviar() {
+    var itens = [];
+    PROD.forEach(function (p, i) { var q = lerNum($('q' + i).value); if (q > 0) itens.push({ cod: p.cod, qtd: q }); });
+    var dados = { nome: $('nome').value, whatsapp: $('wpp').value, endereco: $('end').value, bairro: getBairro(),
+                  obs: $('obs').value, itens: itens, pinGerente: GER };
+    ocupado($('bEnviar'), true); msg('m', 'Enviando...', 'info');
+    api('apiPedidoEnviar', dados).then(function (r) {
+      $('form').classList.add('oculto'); $('ok').classList.remove('oculto');
+      $('ok').innerHTML = '<div class="msg ok"><b>Encomenda recebida!</b></div>' +
+        '<p>Feira de ' + esc(r.dataBR) + '<br>Total estimado dos produtos: <b>' + brl(r.total) + '</b><br>' +
+        (r.frete !== null && r.frete !== undefined ? 'Frete: <b>' + brl(r.frete) + '</b> · Total estimado: <b>' + brl(r.total + r.frete) + '</b>' : '<span class="pequeno">O frete de entrega é somado ao montar a sua cesta.</span>') + '</p>' +
+        '<p>Em breve enviaremos pelo WhatsApp a cesta montada e os dados para o pagamento por PIX.</p>' +
+        '<p><a class="btn" href="encomendas.html">Fazer outra encomenda</a></p>';
+    }).catch(function (e) { msg('m', e.message, 'err'); })
+      .then(function () { ocupado($('bEnviar'), false); });
+  }
+  carregar();
+</script>
+</body>
+</html>
