@@ -45,7 +45,7 @@ Substitua os arquivos no GitHub (Upload files, mesmo nome). O app busca a versã
 ## 8. Se algo não funcionar
 Abra **`diagnostico.html`** no seu site (por exemplo, `https://SEU-USUARIO.github.io/feira-agroecologica/diagnostico.html`) e toque em *Testar agora*. Ele mostra, sem usar PIN, em que ponto a conversa com o servidor falha e o que fazer.
 
-- **"Não foi possível falar com o servidor":** quase sempre falta o `Api.gs`, ou a **nova versão** da implantação não foi publicada, ou o acesso da implantação não é **Qualquer pessoa**. O diagnóstico confirma.
+- **"Não foi possível falar com o servidor":** quase sempre a implantação publicada não tem o `Api.gs` (a **nova versão** não foi publicada) ou o acesso não é **Qualquer pessoa**. Confirme assim: (1) abra o endereço `/exec` em **janela anônima**: deve aparecer o formulário, não o login do Google; (2) no editor do Apps Script rode a função **testeApi** e veja o Registro de execução; (3) se nada resolver, crie uma **Nova implantação** (App da Web, Executar como: Eu, Qualquer pessoa) e coloque o novo endereço em `js/config.js`.
 - **"Resposta inválida do servidor":** o endereço respondeu com uma página de erro; confira o `Api.gs` e a nova versão.
 - **"Sem conexão com a internet":** o aparelho está sem internet.
 - **Tela antiga depois de atualizar:** feche o app e abra de novo, ou aumente a versão do `CACHE` no `sw.js`.
