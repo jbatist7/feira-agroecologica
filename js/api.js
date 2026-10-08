@@ -18,7 +18,10 @@ function api(nome) {
   }).catch(function (e) {
     if (t) clearTimeout(t);
     if (e && e.name === 'AbortError') throw new Error('O servidor demorou demais. Tente de novo.');
-    if (e instanceof TypeError) throw new Error('Sem conexão com a internet. Tente de novo.');
+    if (e instanceof TypeError) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Sem conexão com a internet. Tente de novo.');
+      throw new Error('Não foi possível falar com o servidor. Abra a página diagnostico.html deste site para ver o motivo.');
+    }
     if (e instanceof SyntaxError) throw new Error('Resposta inválida do servidor. Confira a implantação do Apps Script.');
     throw e;
   });

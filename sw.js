@@ -1,7 +1,7 @@
 // Service worker: guarda a "casca" do app para abrir rápido e funcionar a tela offline.
 // Os dados vêm sempre do servidor (Apps Script); aqui não se guarda nenhum dado de pedido, cliente ou PIN.
-var CACHE = 'feira-v1';
-var ARQUIVOS = ['./', 'index.html', 'encomendas.html', 'fornecedor.html', 'coordenacao.html', 'gerente.html',
+var CACHE = 'feira-v2';
+var ARQUIVOS = ['./', 'index.html', 'encomendas.html', 'fornecedor.html', 'coordenacao.html', 'gerente.html', 'diagnostico.html',
   'css/estilo.css', 'js/config.js', 'js/api.js', 'js/pwa.js',
   'manifest-encomendas.webmanifest', 'manifest-fornecedor.webmanifest', 'manifest-coordenacao.webmanifest', 'manifest-gerente.webmanifest'];
 

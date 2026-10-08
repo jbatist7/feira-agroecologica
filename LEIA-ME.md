@@ -43,7 +43,10 @@ Substitua os arquivos no GitHub (Upload files, mesmo nome). O app busca a versã
 - O app guarda no celular apenas o nome do fornecedor (para não ter que escolher de novo). O PIN nunca é guardado.
 
 ## 8. Se algo não funcionar
-- **"Resposta inválida do servidor":** falta o `Api.gs` ou a nova versão da implantação.
-- **"Sem conexão":** sem internet, ou a implantação não está como "Qualquer pessoa".
+Abra **`diagnostico.html`** no seu site (por exemplo, `https://SEU-USUARIO.github.io/feira-agroecologica/diagnostico.html`) e toque em *Testar agora*. Ele mostra, sem usar PIN, em que ponto a conversa com o servidor falha e o que fazer.
+
+- **"Não foi possível falar com o servidor":** quase sempre falta o `Api.gs`, ou a **nova versão** da implantação não foi publicada, ou o acesso da implantação não é **Qualquer pessoa**. O diagnóstico confirma.
+- **"Resposta inválida do servidor":** o endereço respondeu com uma página de erro; confira o `Api.gs` e a nova versão.
+- **"Sem conexão com a internet":** o aparelho está sem internet.
 - **Tela antiga depois de atualizar:** feche o app e abra de novo, ou aumente a versão do `CACHE` no `sw.js`.
 - As páginas do próprio Apps Script (`...exec?page=gerente` etc.) continuam funcionando como reserva.

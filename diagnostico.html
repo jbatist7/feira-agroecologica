@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<meta name="theme-color" content="#2e6b3a"><title>Diagnóstico de conexão</title><link rel="icon" href="icons/fornecedor-192.png">
+<link rel="stylesheet" href="css/estilo.css"><script src="js/config.js"></script></head>
+<body><header><b>🔧 Diagnóstico de conexão</b><small>Mostra por que as telas não conseguem falar com o servidor</small></header>
+<main>
+  <div class="card">
+    <p>Este teste não usa PIN e não altera nada. Ele confere o endereço do Apps Script e se o servidor aceita os pedidos do site.</p>
+    <p><button id="bTestar" onclick="testar()">Testar agora</button></p>
+    <div id="res"></div>
+  </div>
+</main>
+<script>
+  function linha(ok, titulo, detalhe) {
+    return '<div class="msg ' + (ok ? 'ok' : 'err') + '"><b>' + (ok ? '✔ ' : '✘ ') + titulo + '</b>' + (detalhe ? '<br><span class="pequeno">' + detalhe + '</span>' : '') + '</div>';
+  }
+  async function testar() {
+    var out = '', b = document.getElementById('bTestar'); b.disabled = true;
+    document.getElementById('res').innerHTML = '<div class="msg info">Testando...</div>';
+    var online = (typeof navigator === 'undefined') || navigator.onLine !== false;
+    out += linha(online, 'Internet no aparelho', online ? '' : 'O aparelho está sem internet.');
+    var url = (typeof API_URL === 'string') ? API_URL : '';
+    var urlOk = /^https:\/\/script\.google\.com\/macros\/s\/[^\/]+\/exec$/.test(url);
+    out += linha(urlOk, 'Endereço configurado em js/config.js', url ? url : 'API_URL não está definido.' + (urlOk ? '' : ' Deve ser o endereço da implantação, terminando em /exec.'));
+    var alcancou = false;
+    if (urlOk) { try { await fetch(url, { mode: 'no-cors' }); alcancou = true; } catch (e) {} }
+    out += linha(alcancou, 'O servidor do Google responde a esse endereço', alcancou ? '' : 'Sem resposta. Confira o endereço e a internet.');
+    var pos = false, detalhe = '', causa = '';
+    if (alcancou) {
+      try {
+        var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: 'apiFornecedorNomes', args: [] }) });
+        var txt = await r.text(), j = null;
+        try { j = JSON.parse(txt); } catch (e) {}
+        if (j && j.ok) { pos = true; detalhe = (j.dados || []).length + ' fornecedor(es) ativo(s) encontrado(s) na planilha.'; }
+        else if (j) { detalhe = 'O servidor respondeu, mas com erro: ' + j.erro; causa = /inv[aá]lida/i.test(j.erro || '') ? 'O arquivo Api.gs está desatualizado ou incompleto. Cole a versão mais recente e publique uma nova versão.' : (/aba n[aã]o encontrada/i.test(j.erro || '') ? 'Na planilha, rode Feira > 1. Preparar planilha.' : 'Veja a mensagem acima e a seção de solução de problemas do manual.'); }
+        else { detalhe = 'A resposta não é a esperada (parece uma página de erro ou de login do Google).'; causa = 'causa1'; }
+      } catch (e) { detalhe = 'O navegador bloqueou a resposta do servidor. Isso acontece quando o servidor devolve uma página de erro ou de login em vez da resposta do sistema.'; causa = 'causa1'; }
+    }
+    if (alcancou) out += linha(pos, 'O servidor aceita os pedidos do site (Api.gs)', detalhe);
+    var msg = '';
+    if (pos) msg = '<div class="msg ok"><b>Tudo certo.</b> Se uma tela ainda mostrar erro, feche o app, abra de novo e tente outra vez.</div>';
+    else if (causa === 'causa1') msg = '<div class="msg info"><b>O que fazer, nesta ordem:</b><ol>' +
+      '<li>No Apps Script, confirme que existe o arquivo <b>Api</b> (tipo Script) com o conteúdo do Api.gs.</li>' +
+      '<li>Publique uma <b>nova versão</b>: Implantar &gt; Gerenciar implantações &gt; lápis &gt; Versão: Nova versão &gt; Implantar.</li>' +
+      '<li>Na implantação, confira <b>Executar como: Eu</b> e <b>Quem tem acesso: Qualquer pessoa</b> (não &quot;Qualquer pessoa com conta Google&quot;).</li>' +
+      '<li>Se usa conta de empresa ou escola (Google Workspace), o administrador pode bloquear o acesso público; teste com uma conta Gmail pessoal.</li>' +
+      '<li>Volte aqui e toque em <b>Testar agora</b>.</li></ol></div>';
+    else if (causa) msg = '<div class="msg info"><b>O que fazer:</b> ' + causa + '</div>';
+    else if (!online || !alcancou) msg = '<div class="msg info"><b>O que fazer:</b> confira a internet e o endereço em js/config.js; depois toque em Testar agora.</div>';
+    document.getElementById('res').innerHTML = out + msg; b.disabled = false;
+  }
+</script></body></html>
